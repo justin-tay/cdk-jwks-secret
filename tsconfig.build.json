@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "lib",
+    "declaration": true,
+    "inlineSourceMap": true,
+    "inlineSources": true,
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "exclude": ["src/assets"]
+}

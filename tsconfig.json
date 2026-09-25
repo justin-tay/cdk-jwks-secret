@@ -3,34 +3,18 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": [
-      "es2022"
-    ],
-    "declaration": true,
+    "lib": ["es2022"],
     "strict": true,
-    "noImplicitAny": true,
-    "strictNullChecks": true,
-    "noImplicitThis": true,
-    "alwaysStrict": true,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": false,
-    "inlineSourceMap": true,
-    "inlineSources": true,
-    "experimentalDecorators": true,
-    "strictPropertyInitialization": false,
     "skipLibCheck": true,
-    "typeRoots": [
-      "./node_modules/@types"
-    ],
-    "types": [
-      "jest",
-      "node"
-    ]
+    "noEmit": true,
+    "types": ["jest", "node"],
+    // The example in bin/ imports the package by name, as a consumer would;
+    // resolve it to the sources during development.
+    "paths": {
+      "cdk-jwks-secret": ["./src/constructs"],
+      "cdk-jwks-secret/jwks": ["./src/shared/jwks"]
+    }
   },
-  "exclude": [
-    "node_modules",
-    "cdk.out"
-  ]
+  "include": ["src", "test", "bin", "scripts"]
 }

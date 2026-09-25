@@ -1,25 +1,88 @@
 {
   "name": "cdk-jwks-secret",
   "version": "0.1.0",
-  "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "description": "CDK construct for a JWKS stored in Secrets Manager and rotated by a Lambda",
+  "keywords": [
+    "aws-cdk",
+    "cdk",
+    "construct",
+    "jwk",
+    "jwks",
+    "oidc",
+    "openid-connect",
+    "private_key_jwt",
+    "secret-rotation",
+    "secrets-manager"
+  ],
+  "homepage": "https://github.com/justin-tay/cdk-jwks-secret#readme",
+  "bugs": {
+    "url": "https://github.com/justin-tay/cdk-jwks-secret/issues"
+  },
+  "license": "MIT",
+  "author": "Justin Tay",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justin-tay/cdk-jwks-secret.git"
+  },
+  "files": [
+    "lib",
+    "docs"
+  ],
+  "main": "lib/constructs/index.js",
+  "types": "lib/constructs/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/constructs/index.d.ts",
+      "default": "./lib/constructs/index.js"
+    },
+    "./jwks": {
+      "types": "./lib/shared/jwks/index.d.ts",
+      "default": "./lib/shared/jwks/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w",
-    "test": "jest"
+    "build": "npm run build:lib && npm run build:lambda",
+    "build:lib": "tsc -p tsconfig.build.json",
+    "build:lambda": "esbuild src/assets/lambda/handlers/rotation.ts --bundle --platform=node --target=node24 --format=cjs --outfile=lib/assets/lambda/handlers/rotation/index.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "pretest": "npm run build:lambda",
+    "test": "jest --coverage",
+    "clean": "node -e \"fs.rmSync('lib',{recursive:true,force:true})\"",
+    "prepack": "npm run clean && npm run typecheck && npm run build",
+    "cdk:synth": "npm run build && cdk synth",
+    "cdk:diff": "npm run build && cdk diff",
+    "cdk:deploy": "npm run build && cdk deploy",
+    "cdk:destroy": "cdk destroy",
+    "lint": "oxlint --type-aware --deny-warnings",
+    "lint:fix": "oxlint --type-aware --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "test:aws": "npm run build && tsx scripts/test-aws.ts"
   },
   "devDependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1140.0",
     "@swc/core": "^1.15.0",
     "@swc/jest": "^0.2.39",
     "@types/jest": "^30",
     "@types/node": "^20.19.24",
+    "aws-cdk": "2.1143.0",
     "aws-cdk-lib": "^2.270.0",
+    "cdk-nag": "^3.0.2",
     "constructs": "^10.5.0",
+    "esbuild": "^0.28.2",
     "jest": "^30",
+    "oxfmt": "^0.70.0",
+    "oxlint": "^1.85.0",
+    "oxlint-tsgolint": "^7.0.2003",
+    "tsx": "4.23.15",
     "typescript": "~7.0.2"
   },
   "peerDependencies": {
     "aws-cdk-lib": "^2.270.0",
     "constructs": "^10.5.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
