@@ -65,7 +65,7 @@
     "@swc/core": "^1.15.0",
     "@swc/jest": "^0.2.39",
     "@types/jest": "^30",
-    "@types/node": "^20.19.24",
+    "@types/node": "^22.20.4",
     "aws-cdk": "2.1143.0",
     "aws-cdk-lib": "^2.270.0",
     "cdk-nag": "^3.0.2",
@@ -83,6 +83,6 @@
     "constructs": "^10.5.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }
