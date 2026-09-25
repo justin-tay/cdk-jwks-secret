@@ -65,7 +65,7 @@
     "@swc/core": "^1.15.0",
     "@swc/jest": "^0.2.39",
     "@types/jest": "^30",
-    "@types/node": "^20.19.24",
+    "@types/node": "^26.6.2",
     "aws-cdk": "2.1143.0",
     "aws-cdk-lib": "^2.270.0",
     "cdk-nag": "^3.0.2",
