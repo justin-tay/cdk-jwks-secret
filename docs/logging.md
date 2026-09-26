@@ -327,12 +327,26 @@ other events do not, and are left out.
 `user`, `src` and `dest` are not mapped: the function is invoked by Secrets
 Manager and knows no user; the caller of a manual rotation is in CloudTrail.
 `jwks.kids.added`, `jwks.kids.removed` and `jwks.kids.current` are arrays, and
-Splunk field aliases handle single values only, so they stay as they are.
+Splunk field aliases handle single values only, so they stay as they are. Splunk
+extracts them with a `{}` suffix, for example `jwks.kids.added{}`.
 
-This is a draft of the search-time configuration that would produce that
-mapping. It has not been tested against a Splunk instance, so check it, and
-the field names Splunk extracts from the dotted keys, before relying on it.
-Replace `<your sourcetype>` with the sourcetype of the rotation logs.
+The search-time configuration below produces that mapping. Splunk extracts the
+dotted keys under their own names, takes each event's time from `@timestamp`
+without any timestamp settings, applies the aliases and evaluations, and gives
+`create_secret` and `finish_secret` events, and only those, the `change` tag. With
+the Splunk Common Information Model add-on installed, the Change data model
+returns exactly those events, with the fields above. This was verified on
+Splunk Enterprise 10.4.3 with CIM add-on 8.7.0, using records from the logger.
+Replace `<your sourcetype>` with the sourcetype of the rotation logs, and note:
+
+- The constant fields (`object_category`, `change_type` and `vendor_product`)
+  are set on every event of the sourcetype, and the `change` tag is what
+  restricts the data model to the change events.
+- The data model shows `result` as `unknown` for an event with neither an
+  `event.reason` nor an `error.type`.
+- The configuration is visible only in the app it is installed in, unless you
+  share it. Install it in the app you search from, or export it in that app's
+  `metadata/default.meta`.
 
 `props.conf`:
 
@@ -679,10 +693,10 @@ responsibility rather than left unassessed.
 
 <!-- ocsv:generated source="cheatsheets/Logging_Cheat_Sheet.md" source-ref="8df01a5" code-ref="734a288" -->
 
-| Recommendation                                                                                        | Status      | Implementation Statement                                                                                                                                                                                      |
-| ----------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Confidentiality**<br>Prevent an attacker gathering the PII of users from logs.                      | Implemented | The function logs no PII.<br><br>**Application code:** `src/assets/lambda/logger.ts`.                                                                                                                         |
-| **Confidentiality**<br>Prevent an attacker gathering technical secrets, such as passwords, from logs. | Implemented | No key material or secret string is logged, only `kid`s.<br><br>**Application code:** `src/assets/lambda/logger.ts` (`kidsOf`, `errorFields`); **Test code:** `rotation.test.ts` ("never logs key material"). |
+| Recommendation                                                                 | Status      | Implementation Statement                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prevent an attacker gathering the PII of users from logs.                      | Implemented | The function logs no PII.<br><br>**Application code:** `src/assets/lambda/logger.ts`.                                                                                                                         |
+| Prevent an attacker gathering technical secrets, such as passwords, from logs. | Implemented | No key material or secret string is logged, only `kid`s.<br><br>**Application code:** `src/assets/lambda/logger.ts` (`kidsOf`, `errorFields`); **Test code:** `rotation.test.ts` ("never logs key material"). |
 
 <!-- /ocsv:generated -->
 
@@ -690,10 +704,10 @@ responsibility rather than left unassessed.
 
 <!-- ocsv:generated source="cheatsheets/Logging_Cheat_Sheet.md" source-ref="8df01a5" code-ref="734a288" -->
 
-| Recommendation                                                                                                                            | Status      | Implementation Statement                                                                                                                                                                                                                                                                                          |
-| ----------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Integrity**<br>Prevent an attacker with read access to a log using it to exfiltrate secrets.                                            | Implemented | The logs hold no secrets to exfiltrate. A reader learns the `kid`s and ARN of a secret.<br><br>**Application code:** `src/assets/lambda/logger.ts`; **Test code:** `rotation.test.ts` ("never logs key material").                                                                                                |
-| **Integrity**<br>Prevent a payload sent in through logging from exploiting logging platforms, such as an out-of-bounds write over syslog. | Implemented | Values are JSON-encoded, so they cannot break out of a record. Protecting the platform that reads the records is up to whoever runs it.<br><br>**Application code:** `src/assets/lambda/logger.ts` (`logEvent`); **Test code:** `logger.test.ts` ("a value containing line breaks and quotes stays on one line"). |
+| Recommendation                                                                                                           | Status      | Implementation Statement                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prevent an attacker with read access to a log using it to exfiltrate secrets.                                            | Implemented | The logs hold no secrets to exfiltrate. A reader learns the `kid`s and ARN of a secret.<br><br>**Application code:** `src/assets/lambda/logger.ts`; **Test code:** `rotation.test.ts` ("never logs key material").                                                                                                |
+| Prevent a payload sent in through logging from exploiting logging platforms, such as an out-of-bounds write over syslog. | Implemented | Values are JSON-encoded, so they cannot break out of a record. Protecting the platform that reads the records is up to whoever runs it.<br><br>**Application code:** `src/assets/lambda/logger.ts` (`logEvent`); **Test code:** `logger.test.ts` ("a value containing line breaks and quotes stays on one line"). |
 
 <!-- /ocsv:generated -->
 
@@ -701,12 +715,12 @@ responsibility rather than left unassessed.
 
 <!-- ocsv:generated source="cheatsheets/Logging_Cheat_Sheet.md" source-ref="8df01a5" code-ref="734a288" -->
 
-| Recommendation                                                                                                                       | Status         | Implementation Statement                                                                                                                                                                            |
-| ------------------------------------------------------------------------------------------------------------------------------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Availability**<br>Prevent an attacker flooding log files to exhaust the disk space available for non-logging facets of the system. | Not applicable | The function has no disk to fill. Lambda's storage is not used for logs.                                                                                                                            |
-| **Availability**<br>Prevent an attacker flooding log files to exhaust the disk space available for further logging.                  | Not applicable | The logs go to CloudWatch Logs, which has no such limit for the function.                                                                                                                           |
-| **Availability**<br>Prevent an attacker using one log entry to destroy other log entries.                                            | Not applicable | Each record is one line of JSON, appended to the stream. One cannot alter another.                                                                                                                  |
-| **Availability**<br>Prevent an attacker leveraging poor performance of logging code to reduce application performance.               | Implemented    | Logging is a single synchronous write of a small record, at most a few times per rotation, and no caller decides how many.<br><br>**Application code:** `src/assets/lambda/logger.ts` (`logEvent`). |
+| Recommendation                                                                                                   | Status         | Implementation Statement                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prevent an attacker flooding log files to exhaust the disk space available for non-logging facets of the system. | Not applicable | The function has no disk to fill. Lambda's storage is not used for logs.                                                                                                                            |
+| Prevent an attacker flooding log files to exhaust the disk space available for further logging.                  | Not applicable | The logs go to CloudWatch Logs, which has no such limit for the function.                                                                                                                           |
+| Prevent an attacker using one log entry to destroy other log entries.                                            | Not applicable | Each record is one line of JSON, appended to the stream. One cannot alter another.                                                                                                                  |
+| Prevent an attacker leveraging poor performance of logging code to reduce application performance.               | Implemented    | Logging is a single synchronous write of a small record, at most a few times per rotation, and no caller decides how many.<br><br>**Application code:** `src/assets/lambda/logger.ts` (`logEvent`). |
 
 <!-- /ocsv:generated -->
 
@@ -714,10 +728,10 @@ responsibility rather than left unassessed.
 
 <!-- ocsv:generated source="cheatsheets/Logging_Cheat_Sheet.md" source-ref="8df01a5" code-ref="734a288" -->
 
-| Recommendation                                                                                                               | Status                    | Implementation Statement                                                                                                                                                                                                                                                                     |
-| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Accountability**<br>Prevent an attacker preventing writes in order to cover their tracks.                                  | Partial                   | The function cannot be made to skip an event. The account's administrators can still stop the writes by denying `logs:PutLogEvents` or deleting the log group. CloudTrail records that, and it is how to detect it.<br><br>**Application code:** `src/assets/lambda/logger.ts` (`logEvent`). |
-| **Accountability**<br>Prevent an attacker damaging the log in order to cover their tracks.                                   | Deployment responsibility | Restrict who can delete or change the log group, and monitor it in CloudTrail.                                                                                                                                                                                                               |
-| **Accountability**<br>Prevent an attacker causing the wrong identity to be logged in order to conceal the responsible party. | Not applicable            | The function logs no identity of a person. The identity of a caller is in CloudTrail, where the caller cannot choose it.                                                                                                                                                                     |
+| Recommendation                                                                                         | Status                    | Implementation Statement                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prevent an attacker preventing writes in order to cover their tracks.                                  | Partial                   | The function cannot be made to skip an event. The account's administrators can still stop the writes by denying `logs:PutLogEvents` or deleting the log group. CloudTrail records that, and it is how to detect it.<br><br>**Application code:** `src/assets/lambda/logger.ts` (`logEvent`). |
+| Prevent an attacker damaging the log in order to cover their tracks.                                   | Deployment responsibility | Restrict who can delete or change the log group, and monitor it in CloudTrail.                                                                                                                                                                                                               |
+| Prevent an attacker causing the wrong identity to be logged in order to conceal the responsible party. | Not applicable            | The function logs no identity of a person. The identity of a caller is in CloudTrail, where the caller cannot choose it.                                                                                                                                                                     |
 
 <!-- /ocsv:generated -->
