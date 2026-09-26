@@ -2,7 +2,13 @@ import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { Duration, RemovalPolicy, SecretValue, Validations } from 'aws-cdk-lib';
 import { ManagedPolicy, Role, ServicePrincipal, type Grant, type IGrantable } from 'aws-cdk-lib/aws-iam';
-import { Architecture, Code, Function as LambdaFunction, Runtime } from 'aws-cdk-lib/aws-lambda';
+import {
+  Architecture,
+  Code,
+  Function as LambdaFunction,
+  LoggingFormat,
+  Runtime,
+} from 'aws-cdk-lib/aws-lambda';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { RotationSchedule, Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
@@ -86,6 +92,7 @@ export class JwksSecret extends Construct {
 
     this.rotationLogGroup = new LogGroup(this, 'RotationLambdaLogGroup', {
       retention: rotationLogGroupProps.retention ?? RetentionDays.ONE_YEAR,
+      encryptionKey: rotationLogGroupProps.encryptionKey,
       removalPolicy: rotationLogGroupProps.removalPolicy ?? removalPolicy,
     });
 
@@ -118,6 +125,9 @@ export class JwksSecret extends Construct {
         [JWK_OPTIONS_ENV]: JSON.stringify(this.jwkOptions),
       },
       logGroup: this.rotationLogGroup,
+      // The function writes ECS JSON records straight to stdout, which the
+      // JSON log format would wrap; see docs/logging.md.
+      loggingFormat: LoggingFormat.TEXT,
       role: this.rotationLambdaRole,
       vpc: rotationLambdaProps.vpc,
       vpcSubnets: rotationLambdaProps.vpcSubnets,

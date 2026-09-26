@@ -17,7 +17,7 @@ for `private_key_jwt` client authentication with an OpenID Connect server.
 | JSON Web Key (JWK)          | [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517)                                                                      |
 | JSON Web Algorithms (JWA)   | [RFC 7518](https://www.rfc-editor.org/rfc/rfc7518)                                                                      |
 | JWK thumbprint (`kid`)      | [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638)                                                                      |
-| Guides                      | [How rotation works](docs/how-rotation-works.md), [Using the keys](docs/using-the-keys.md)                              |
+| Guides                      | [How rotation works](docs/how-rotation-works.md), [Using the keys](docs/using-the-keys.md), [Logging](docs/logging.md)  |
 
 ## Overview
 
@@ -56,7 +56,7 @@ Your server reads the secret, serves its public keys from the client's
 | rsaModulusLength?      | `number`                                                                                                                                                                                | `2048`                                                                                                | The RSA modulus length in bits, a multiple of 8 from 2048 to 4096. For RSA algorithms only.                                                                                                                                                                                                                                                  |
 | secretProps?           | [`Pick<SecretProps, 'secretName' \| 'description' \| 'encryptionKey' \| 'removalPolicy'>`](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_secretsmanager.SecretProps.html) | A generated name, no description, the AWS managed key `aws/secretsmanager` and `RemovalPolicy.RETAIN` | Overrides for the secret. Its value is always managed by the construct. It is retained by default because deleting it loses the keys the client registration relies on; see [Removal and cost](#removal-and-cost).                                                                                                                           |
 | rotationLambdaProps?   | [`Pick<FunctionProps, 'memorySize' \| 'vpc' \| 'vpcSubnets' \| 'securityGroups'>`](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_lambda.FunctionProps.html)               | Not in a VPC. `memorySize` is 512 for RSA keys larger than 2048 bits, 128 otherwise.                  | Overrides for the rotation Lambda. Lambda allocates CPU in proportion to memory, which is what RSA key generation needs. In a VPC, the subnets need a route to Secrets Manager through a VPC endpoint or NAT.                                                                                                                                |
-| rotationLogGroupProps? | [`Pick<LogGroupProps, 'retention' \| 'removalPolicy'>`](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_logs.LogGroupProps.html)                                            | `RetentionDays.ONE_YEAR` and the secret's removal policy                                              | Overrides for the rotation Lambda's log group.                                                                                                                                                                                                                                                                                               |
+| rotationLogGroupProps? | [`Pick<LogGroupProps, 'retention' \| 'removalPolicy' \| 'encryptionKey'>`](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_logs.LogGroupProps.html)                         | `RetentionDays.ONE_YEAR`, no customer managed key and the secret's removal policy                     | Overrides for the rotation Lambda's log group, which holds the [ECS logs](docs/logging.md).                                                                                                                                                                                                                                                  |
 | rotationScheduleProps? | [`Pick<RotationScheduleOptions, 'automaticallyAfter'>`](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_secretsmanager.RotationScheduleOptions.html)                        | `automaticallyAfter: Duration.days(28)`                                                               | Overrides for the rotation schedule. `automaticallyAfter` must be from 4 hours to 1000 days. It is also how long a new key is published before it is used, so it should be longer than the OpenID Connect server's JWKS cache lifetime. The schedule always rotates immediately when it is created or updated, which initialises the secret. |
 
 The key options (`use`, `algorithm`, `curve`, `rsaModulusLength`) cannot be
@@ -115,7 +115,7 @@ the following defaults:
 - 128 MB memory, or 512 MB for RSA keys larger than 2048 bits, which take far more CPU to generate
 - Code pre-bundled in the package; nothing is bundled when the consumer synthesizes
 - Generates `ES256` keys on P-256 (`ECDH-ES+A128KW` on P-256 with `use: 'enc'`), each with `kid` (its RFC 7638 thumbprint), `use` and `alg`
-- Logs only key ids, never key material
+- Logs each rotation as [ECS](docs/logging.md) JSON records, with key ids only, never key material
 - Not in a VPC
 
 ### AWS Lambda permission
@@ -131,7 +131,7 @@ the following defaults:
 
 ### Amazon CloudWatch Logs log group
 
-- Holds the rotation Lambda's logs for 1 year
+- Holds the rotation Lambda's logs for 1 year, encrypted with `rotationLogGroupProps.encryptionKey` if given
 - Retained when removed from the stack
 
 ### Optional resources
@@ -196,6 +196,7 @@ follows it.
 
 - [How rotation works](docs/how-rotation-works.md): the key lifecycle for `sig` and `enc` keys, the rotation steps and caveats
 - [Using the keys](docs/using-the-keys.md): what your server must do to serve the JWKS endpoint and sign or decrypt, and the `cdk-jwks-secret/jwks` helpers
+- [Logging](docs/logging.md): the ECS event schema and reference, how to query and alarm on the logs, and the OWASP Logging Cheat Sheet control implementation
 
 ## Example
 

@@ -32,6 +32,22 @@ test('keeps the rotation Lambda logs for a year in a log group that follows the 
   });
 });
 
+test('uses the Text log format, so the ECS records the function writes are not wrapped', () => {
+  const { template } = synth();
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    LoggingConfig: { LogFormat: 'Text' },
+  });
+});
+
+test('encrypts the log group with the given key', () => {
+  const stack = new Stack(undefined, 'TestStack', { env: { region: 'us-east-1', account: '123456789012' } });
+  const encryptionKey = new Key(stack, 'LogKey');
+  new JwksSecret(stack, 'JwksSecret', { rotationLogGroupProps: { encryptionKey } });
+  Template.fromStack(stack).hasResourceProperties('AWS::Logs::LogGroup', {
+    KmsKeyId: Match.anyValue(),
+  });
+});
+
 test('creates a Node 24 arm64 rotation Lambda configured with the resolved options', () => {
   const { template } = synth();
   template.hasResourceProperties('AWS::Lambda::Function', {

@@ -32,9 +32,10 @@ export interface JwksSecretProps extends JwkOptions {
   /**
    * Overrides for the rotation Lambda's log group.
    *
-   * @default `RetentionDays.ONE_YEAR`, and the secret's removal policy
+   * @default `RetentionDays.ONE_YEAR`, no customer managed encryption key, and
+   * the secret's removal policy
    */
-  readonly rotationLogGroupProps?: Pick<LogGroupProps, 'retention' | 'removalPolicy'>;
+  readonly rotationLogGroupProps?: Pick<LogGroupProps, 'retention' | 'removalPolicy' | 'encryptionKey'>;
 
   /**
    * Overrides for the rotation schedule. `automaticallyAfter` is also how long

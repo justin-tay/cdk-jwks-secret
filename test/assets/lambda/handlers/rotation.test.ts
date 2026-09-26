@@ -8,6 +8,7 @@ import {
 import {
   createRotationHandler,
   handler,
+  initialiseRotationHandler,
   type RotationEvent,
   type RotationStep,
 } from '../../../../src/assets/lambda/handlers/rotation';
@@ -106,8 +107,21 @@ function setup(options: ResolvedJwkOptions = resolveJwkOptions({ algorithm: 'ES2
   return { secretsManager, rotationHandler, rotate };
 }
 
+type LogRecord = Record<string, unknown>;
+
+let written: string[];
+
+/** The ECS records the handler has written to stdout so far. */
+const records = (): LogRecord[] => written.map((line) => JSON.parse(line) as LogRecord);
+
+const recordsFor = (action: string): LogRecord[] => records().filter((r) => r['event.action'] === action);
+
 beforeEach(() => {
-  jest.spyOn(console, 'log').mockImplementation(() => undefined);
+  written = [];
+  jest.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+    written.push(String(chunk).trimEnd());
+    return true;
+  });
 });
 
 afterEach(() => {
@@ -257,4 +271,225 @@ test('fails on an unknown step', async () => {
 test('handler fails when JWK_OPTIONS is not set', async () => {
   delete process.env.JWK_OPTIONS;
   await expect(handler(event('createSecret', 'v1'))).rejects.toThrow(/JWK_OPTIONS is not set/);
+});
+
+describe('logging', () => {
+  test('a rotation logs one ECS event per step, correlated by the rotation token', async () => {
+    const { secretsManager, rotationHandler } = setup();
+    const token = secretsManager.startRotation();
+    for (const step of STEPS) {
+      await rotationHandler(event(step, token));
+    }
+    const logged = records();
+    expect(logged.map((r) => r['event.action'])).toEqual(['create_secret', 'test_secret', 'finish_secret']);
+    for (const record of logged) {
+      expect(record).toMatchObject({
+        'ecs.version': '8.11.0',
+        'log.level': 'info',
+        'event.outcome': 'success',
+        'event.id': token,
+        'cloud.provider': 'aws',
+        'cloud.account.id': '123456789012',
+        'aws.secretsmanager.secret.arn': SECRET_ID,
+        'aws.secretsmanager.secret.version.id': token,
+      });
+      expect(new Date(record['@timestamp'] as string).toISOString()).toBe(record['@timestamp']);
+    }
+  });
+
+  test('the first rotation adds both keys and removes none', async () => {
+    const { rotate } = setup();
+    const jwks = await rotate();
+    const kids = jwks.keys.map((jwk) => jwk.kid);
+    for (const action of ['create_secret', 'finish_secret']) {
+      expect(recordsFor(action)[0]).toMatchObject({
+        'jwks.kids.current': kids,
+        'jwks.kids.added': kids,
+        'jwks.kids.removed': [],
+      });
+    }
+    expect(recordsFor('test_secret')[0]).toMatchObject({ 'jwks.kids.current': kids });
+    expect(recordsFor('finish_secret')[0]['aws.secretsmanager.secret.previous_version.id']).toBe('v0');
+  });
+
+  test('a rotation that drops the oldest key logs it as removed', async () => {
+    const { rotate } = setup();
+    await rotate();
+    const second = await rotate();
+    written = [];
+    const third = await rotate();
+    const dropped = second.keys[0].kid;
+    const added = third.keys[third.keys.length - 1].kid;
+    expect(third.keys.map((jwk) => jwk.kid)).not.toContain(dropped);
+    for (const action of ['create_secret', 'finish_secret']) {
+      expect(recordsFor(action)[0]).toMatchObject({
+        'jwks.kids.added': [added],
+        'jwks.kids.removed': [dropped],
+      });
+    }
+  });
+
+  test('never logs key material', async () => {
+    const { rotate } = setup(resolveJwkOptions({ algorithm: 'RS256' }));
+    const jwks = await rotate();
+    const output = written.join('\n');
+    const privateMembers = jwks.keys.flatMap((jwk) =>
+      (['d', 'p', 'q', 'dp', 'dq', 'qi', 'n'] as const).map(
+        (member) => (jwk as unknown as Record<string, string | undefined>)[member],
+      ),
+    );
+    expect(privateMembers.filter((value) => value !== undefined).length).toBeGreaterThan(0);
+    for (const value of privateMembers.filter((v) => v !== undefined)) {
+      expect(output).not.toContain(value);
+    }
+  });
+
+  test('a token that is already AWSCURRENT is logged as skipped', async () => {
+    const { rotationHandler } = setup();
+    await rotationHandler(event('finishSecret', 'v0'));
+    expect(records()).toEqual([
+      expect.objectContaining({
+        'event.action': 'rotate_secret',
+        'event.outcome': 'success',
+        'event.reason': 'already_current',
+        'aws.secretsmanager.rotation.step': 'finishSecret',
+      }),
+    ]);
+  });
+
+  test('an existing pending version is logged as skipped', async () => {
+    const { secretsManager, rotationHandler } = setup();
+    const token = secretsManager.startRotation();
+    await rotationHandler(event('createSecret', token));
+    written = [];
+    await rotationHandler(event('createSecret', token));
+    expect(records()).toEqual([
+      expect.objectContaining({ 'event.action': 'rotate_secret', 'event.reason': 'pending_exists' }),
+    ]);
+  });
+
+  test('a validation failure is logged with its safe message before the error is rethrown', async () => {
+    const { secretsManager, rotate } = setup();
+    await rotate();
+    written = [];
+    const mismatched = createRotationHandler(
+      secretsManager as never,
+      resolveJwkOptions({ algorithm: 'ES384' }),
+    );
+    const token = secretsManager.startRotation();
+    await expect(mismatched(event('createSecret', token))).rejects.toThrow(/alg is ES256, expected ES384/);
+    expect(records()).toEqual([
+      expect.objectContaining({
+        'log.level': 'error',
+        'event.action': 'create_secret',
+        'event.type': ['error'],
+        'event.outcome': 'failure',
+        'error.type': 'JwkOptionsMismatchError',
+        'error.message': expect.stringContaining('alg is ES256, expected ES384'),
+      }),
+    ]);
+  });
+
+  test('an unrecognised error is logged by type only', async () => {
+    const { secretsManager, rotationHandler } = setup();
+    const token = secretsManager.startRotation();
+    const send = secretsManager.send;
+    secretsManager.send = async (command: unknown) => {
+      if (command instanceof GetSecretValueCommand && command.input.VersionId === token) {
+        throw new Error('contains a secret');
+      }
+      return send(command);
+    };
+    await expect(rotationHandler(event('createSecret', token))).rejects.toThrow(/contains a secret/);
+    const [record] = records();
+    expect(record).toMatchObject({ 'event.outcome': 'failure', 'error.type': 'Error' });
+    expect(record).not.toHaveProperty('error.message');
+    expect(record).not.toHaveProperty('error.stack_trace');
+    expect(written.join('')).not.toContain('contains a secret');
+  });
+
+  test.each([
+    ['rotation is disabled', 'rotation_disabled'],
+    ['the token is unknown', 'version_not_found'],
+  ])('a precondition failure (%s) is logged as validate_rotation', async (_name, reason) => {
+    const { secretsManager, rotationHandler } = setup();
+    secretsManager.rotationEnabled = reason !== 'rotation_disabled';
+    const token = secretsManager.rotationEnabled ? 'unknown' : secretsManager.startRotation();
+    await expect(rotationHandler(event('createSecret', token))).rejects.toThrow(
+      /not enabled for rotation|has no stage/,
+    );
+    expect(records()).toEqual([
+      expect.objectContaining({
+        'event.action': 'validate_rotation',
+        'event.outcome': 'failure',
+        'event.reason': reason,
+        'error.type': 'RotationStateError',
+      }),
+    ]);
+  });
+
+  test('a version that is not AWSPENDING and an unknown step are logged as validate_rotation', async () => {
+    const { secretsManager, rotationHandler } = setup();
+    secretsManager.versions.set('v9', { value: '{"keys":[]}', stages: ['AWSPREVIOUS'] });
+    await expect(rotationHandler(event('createSecret', 'v9'))).rejects.toThrow(/is not AWSPENDING/);
+    const token = secretsManager.startRotation();
+    await expect(rotationHandler(event('rollback' as RotationStep, token))).rejects.toThrow(
+      /Unknown rotation step/,
+    );
+    expect(records().map((r) => r['event.reason'])).toEqual(['version_not_pending', 'unknown_step']);
+  });
+
+  test('a failure outside a known step is logged under rotate_secret', async () => {
+    const { secretsManager, rotationHandler } = setup();
+    secretsManager.send = async () => {
+      throw new ResourceNotFoundException({ message: 'no such secret', $metadata: {} });
+    };
+    await expect(rotationHandler(event('rollback' as RotationStep, 'v1'))).rejects.toThrow(/no such secret/);
+    expect(records()).toEqual([
+      expect.objectContaining({
+        'event.action': 'rotate_secret',
+        'error.type': 'ResourceNotFoundException',
+        'error.message': 'no such secret',
+      }),
+    ]);
+  });
+
+  test('a failure to log does not fail the rotation', async () => {
+    const { rotate } = setup();
+    jest.spyOn(process.stdout, 'write').mockImplementation(() => {
+      throw new Error('stdout closed');
+    });
+    expect((await rotate()).keys).toHaveLength(2);
+  });
+
+  describe('starting the function', () => {
+    afterEach(() => {
+      delete process.env.JWK_OPTIONS;
+    });
+
+    test('logs the effective key options', () => {
+      process.env.JWK_OPTIONS = JSON.stringify(resolveJwkOptions({ algorithm: 'ES384' }));
+      initialiseRotationHandler({ send: jest.fn() });
+      expect(records()).toEqual([
+        expect.objectContaining({
+          'event.action': 'start_function',
+          'event.category': ['process'],
+          'event.type': ['start'],
+          'event.outcome': 'success',
+          'jwks.use': 'sig',
+          'jwks.alg': 'ES384',
+          'jwks.key_type': 'EC',
+          'jwks.curve': 'P-384',
+        }),
+      ]);
+    });
+
+    test('logs a failure to read the key options', () => {
+      delete process.env.JWK_OPTIONS;
+      expect(() => initialiseRotationHandler({ send: jest.fn() })).toThrow(/JWK_OPTIONS is not set/);
+      expect(records()).toEqual([
+        expect.objectContaining({ 'event.action': 'start_function', 'event.outcome': 'failure' }),
+      ]);
+    });
+  });
 });

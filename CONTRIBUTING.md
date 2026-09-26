@@ -40,6 +40,21 @@ The example imports the package by name (`cdk-jwks-secret`,
 `tsconfig.json` (honoured by `tsx` and esbuild) and `moduleNameMapper` in
 `jest.config.js` resolve these to `src/`.
 
+## Logging
+
+The rotation Lambda logs through `src/assets/lambda/logger.ts`, and nothing else
+writes to stdout or calls `console`. The events are a closed catalogue
+(`EVENTS`), documented in [docs/logging.md](docs/logging.md):
+
+- To log something new, add an ECS-aligned entry to `EVENTS` and to the event
+  index and event reference in `docs/logging.md`, instead of writing an ad hoc
+  message. Add a field to the schema tables when you add one.
+- Never log key material, the secret string, or an error message that might
+  echo one. `errorFields` logs a message only for the error classes it allows;
+  add a class there only if this package writes its message.
+- Update the OWASP Logging Cheat Sheet control implementation in the same file
+  when a change affects a row.
+
 ## Commit messages
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
