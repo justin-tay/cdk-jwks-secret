@@ -302,6 +302,89 @@ Add an alarm action, such as an SNS topic, with `alarm.addAlarmAction(...)`.
 The function only runs when a rotation happens, every 28 days by default, so a
 quiet log group is normal and is not a sign that logging has stopped.
 
+### Using the logs with Splunk
+
+Splunk does not need ECS, but its dashboards and apps that use the CIM expect
+CIM field names. Getting the records into Splunk is up to you. Whatever delivers
+them, each log line is one bare ECS JSON record, so extract it as JSON if a
+delivery mechanism wraps it in an envelope. The key-change events map onto the
+[CIM Change data model](https://help.splunk.com/en/data-management/common-information-model/6.2/data-models/change):
+`create_secret` and `finish_secret` are the events that change something. The
+other events do not, and are left out.
+
+| CIM `Change` field | Value                                                         | Notes                                |
+| ------------------ | ------------------------------------------------------------- | ------------------------------------ |
+| `action`           | `created` for `create_secret`, `modified` for `finish_secret` | Both are allowed CIM values.         |
+| `status`           | `event.outcome`                                               | Same values: `success` or `failure`. |
+| `object`           | `aws.secretsmanager.secret.arn`                               |                                      |
+| `object_id`        | `aws.secretsmanager.secret.version.id`                        |                                      |
+| `object_category`  | `secret`                                                      | A constant. CIM prescribes no value. |
+| `result`           | `event.reason`, or else `error.type`                          | Clarifies the status.                |
+| `change_type`      | `key rotation`                                                | A constant. CIM prescribes no value. |
+| `command`          | `aws.secretsmanager.rotation.step`                            | The step that made the change.       |
+| `vendor_product`   | `cdk-jwks-secret`                                             | A constant.                          |
+
+`user`, `src` and `dest` are not mapped: the function is invoked by Secrets
+Manager and knows no user; the caller of a manual rotation is in CloudTrail.
+`jwks.kids.added`, `jwks.kids.removed` and `jwks.kids.current` are arrays, and
+Splunk field aliases handle single values only, so they stay as they are.
+
+This is a draft of the search-time configuration that would produce that
+mapping. It has not been tested against a Splunk instance, so check it, and
+the field names Splunk extracts from the dotted keys, before relying on it.
+Replace `<your sourcetype>` with the sourcetype of the rotation logs.
+
+`props.conf`:
+
+```
+[<your sourcetype>]
+KV_MODE = json
+FIELDALIAS-jwks-status = "event.outcome" AS status
+FIELDALIAS-jwks-object = "aws.secretsmanager.secret.arn" AS object
+FIELDALIAS-jwks-object_id = "aws.secretsmanager.secret.version.id" AS object_id
+FIELDALIAS-jwks-command = "aws.secretsmanager.rotation.step" AS command
+EVAL-action = case('event.action'=="create_secret", "created", 'event.action'=="finish_secret", "modified")
+EVAL-object_category = "secret"
+EVAL-result = coalesce('event.reason', 'error.type')
+EVAL-change_type = "key rotation"
+EVAL-vendor_product = "cdk-jwks-secret"
+```
+
+`eventtypes.conf`:
+
+```
+[jwks_secret_key_change]
+search = sourcetype=<your sourcetype> (event.action=create_secret OR event.action=finish_secret)
+```
+
+`tags.conf`:
+
+```
+[eventtype=jwks_secret_key_change]
+change = enabled
+```
+
+## Log destinations
+
+ECS is a documented, versioned naming convention for log fields. It is not a
+requirement of AWS or of most places the logs end up, so which destination you
+use decides how much ECS helps. There is no adoption data comparing these, so
+this section says only what each destination does with the field names.
+
+| Destination                                     | ECS support | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CloudWatch Logs                                 | None needed | Reads any JSON, and Insights and metric filters use the field names as written; see [Consuming the logs](#consuming-the-logs). The AWS-native logging library, [Powertools for AWS Lambda](https://middy.js.org/docs/integrations/lambda-powertools), uses its own JSON keys.                                                                                                                                                                                                                                                                                                                                       |
+| Splunk                                          | Not native  | Splunk maps a source to its own Common Information Model at search time; see [Using the logs with Splunk](#using-the-logs-with-splunk).                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Elastic (Elastic Cloud on AWS, or self-managed) | Native      | ECS is Elastic's schema. The [Elastic Serverless Forwarder](https://www.elastic.co/docs/reference/aws-forwarder) accepts input from a CloudWatch Logs subscription filter.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Amazon OpenSearch Service                       | Partial     | It has a built-in [CloudWatch Logs subscription to a domain](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/SubscriptionFilters.html). Its [Simple Schema for Observability](https://aws.amazon.com/blogs/big-data/amazon-opensearch-service-h1-2023-in-review/) is inspired by ECS and OpenTelemetry, and its [Security Analytics plugin maps log types to ECS and OCSF fields](https://deepwiki.com/opensearch-project/security-analytics/8.2-ecs-mapping). An [open request](https://github.com/opensearch-project/security-analytics/issues/1615) asks the plugin to adopt proper ECS field mappings. |
+
+ECS is also converging with OpenTelemetry: Elastic
+[donated ECS to OpenTelemetry](https://www.elastic.co/blog/ecs-elastic-common-schema-otel-opentelemetry-announcement)
+in 2023, and the aim is for OpenTelemetry's semantic conventions to
+[succeed it](https://opentelemetry.io/blog/2023/ecs-otel-semconv-convergence/).
+Many ECS field names used here, such as `service.name` and `http.*`, are
+therefore likely to carry over to OpenTelemetry.
+
 ## OWASP Logging Cheat Sheet control implementation
 
 The logging posture of `JwksSecret` is recorded here against the
