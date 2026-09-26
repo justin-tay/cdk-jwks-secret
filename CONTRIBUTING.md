@@ -27,8 +27,10 @@ docs/                           construct reference and guides
   Tests use fake AWS credentials and never reach AWS.
 - `npm run test:aws`: deploy the example app to the AWS account and region of
   your current credentials, check the first rotation and a manual rotation of
-  each secret through the JWKS endpoint, then destroy the stack (`-- --keep` to
-  keep it). Costs a few cents.
+  each secret through the JWKS endpoint, check that each rotation Lambda's log
+  group holds only bare ECS records that describe those rotations, then
+  destroy the stack (`-- --keep` to keep it). Costs a few cents. The
+  credentials need `logs:FilterLogEvents` as well as permission to deploy.
 - `npm run cdk:synth` / `cdk:diff` / `cdk:deploy` / `cdk:destroy`: build, then
   run the CDK CLI on the example app
 

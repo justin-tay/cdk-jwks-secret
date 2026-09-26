@@ -58,6 +58,8 @@ export class AppStack extends Stack {
     new CfnOutput(this, 'JwksUrl', { value: jwksUrl.url });
     new CfnOutput(this, 'SigSecretArn', { value: this.sigJwksSecret.secret.secretArn });
     new CfnOutput(this, 'EncSecretArn', { value: this.encJwksSecret.secret.secretArn });
+    new CfnOutput(this, 'SigRotationLogGroup', { value: this.sigJwksSecret.rotationLogGroup.logGroupName });
+    new CfnOutput(this, 'EncRotationLogGroup', { value: this.encJwksSecret.rotationLogGroup.logGroupName });
   }
 }
 
