@@ -44,7 +44,7 @@
   "scripts": {
     "build": "npm run build:lib && npm run build:lambda",
     "build:lib": "tsc -p tsconfig.build.json",
-    "build:lambda": "esbuild src/assets/lambda/handlers/rotation.ts --bundle --platform=node --target=node24 --format=cjs --outfile=lib/assets/lambda/handlers/rotation/index.js",
+    "build:lambda": "esbuild src/assets/lambda/handlers/rotation.ts --bundle --platform=node --target=node24 --format=esm --external:@aws-sdk/* --outfile=lib/assets/lambda/handlers/rotation/index.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "pretest": "npm run build:lambda",
     "test": "jest --coverage",

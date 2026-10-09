@@ -2,5 +2,11 @@
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "printWidth": 110,
   "singleQuote": true,
-  "ignorePatterns": ["lib/**", "cdk.out/**", "package-lock.json", "CHANGELOG.md"]
+  "ignorePatterns": [
+    "lib/**",
+    "cdk.out/**",
+    "package-lock.json",
+    "CHANGELOG.md",
+    ".release-please-manifest.json"
+  ]
 }
