@@ -66,7 +66,7 @@ export class JwksSecret extends Construct {
       rsaModulusLength: props.rsaModulusLength,
     });
 
-    if (!existsSync(path.join(ROTATION_HANDLER_ASSET_PATH, 'index.js'))) {
+    if (!existsSync(path.join(ROTATION_HANDLER_ASSET_PATH, 'index.mjs'))) {
       throw new Error(
         `Rotation Lambda bundle not found at ${ROTATION_HANDLER_ASSET_PATH}. Run "npm run build:lambda".`,
       );
