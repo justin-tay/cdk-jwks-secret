@@ -1,6 +1,6 @@
 {
   "name": "cdk-jwks-secret",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CDK construct for a JWKS stored in Secrets Manager and rotated by a Lambda",
   "keywords": [
     "aws-cdk",
