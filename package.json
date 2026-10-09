@@ -73,7 +73,7 @@
     "constructs": "^10.5.0",
     "esbuild": "^0.28.2",
     "jest": "^30",
-    "oxfmt": "^0.70.0",
+    "oxfmt": "^0.71.0",
     "oxlint": "^1.85.0",
     "oxlint-tsgolint": "^7.0.2003",
     "tsx": "4.23.15",
